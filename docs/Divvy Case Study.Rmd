@@ -1,0 +1,350 @@
+---
+title: "Bike Share Case Study"
+author: "Keilah Grande"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width = 12, fig.height = 8)
+```
+
+## Intro & Goal
+
+This is a capstone project with the task provided by the Google Data Analytics Professional Certificate on Coursera for a fictional company "Cyclistic" based on data from Divvy. Divvy is a bike share company with public data available on their [website](https://divvybikes.com/). The goal is to find differences between how casual users and annual members use Divvy bikes to make recommendations to increase annual memberships via digital marketing. I chose to download the data files from 2020-2023. All the data sets have the same columns. 
+
+* ride_id, character, primary key
+* rideable_type, character
+* started_at, timestamp
+* ended_at, timestamp
+* start_station_name, character
+* start_station_id, character
+* end_station_name, character
+* end_station_id, character
+* start_lat, numeric
+* start_lng, numeric
+* end_lat, numeric
+* end_lng, numeric
+* member_casual, character
+
+End station ID and start station ID load as numeric in some data frames and as character in other data frames. These columns will be changed to character types in the cleaning section.
+
+## Setup & Load
+Set the working directory to a folder named 'Cyclistic Case Study'. In this folder there are subfolder labeled 'Raw Data' and 'Initial Clean'. Download all the necessary data from Divvy's website and place in the subfolder 'Raw Data'.
+
+```{r}
+setwd("C:/Users/kgran/Desktop/Cyclistic Case Study")
+```
+
+Install and load necessary packages.
+
+```{r packages}
+options(repos = list(CRAN = "http://cran.rstudio.com/"))
+install.packages("writexl")
+install.packages("lubridate")
+install.packages("tidyverse")
+install.packages("readxl")
+install.packages("zoo")
+library("writexl")
+library("lubridate")
+library("tidyverse")
+library("readxl")
+library("zoo")
+```
+
+Use file list and data list to easily load all the data using a for loop.
+
+```{r loading the data}
+#load all files into a file list
+file_list <- list.files("Raw Data", pattern = "*.csv", full.names = TRUE)
+
+#create an empty data list to fill in
+data_list <- list()
+
+#read the files into the empty data list using a loop
+for (file in file_list) {
+  
+  data <- read.csv(file)
+  
+  data_list[[file]] <- data
+}
+```
+
+## Data Cleaning & Transforming
+
+Remove rows where the ended at value is less than or equal to the started at value. Create a function to treat the started_at and ended_at rows as datetimes, then only include rows where the ended_at value is greater than the started_at value. Then use lapply to run the function on all the data frames in data_list.
+
+```{r remove error rows}
+#create a function to remove rows from each data frame where the ended_at column is less than or equal to the started_at column
+remove_error_rows <- function(df){
+  df$started_at <- as.POSIXct(df$started_at)
+  df$ended_at <- as.POSIXct(df$ended_at)
+  df <- df[df$ended_at > df$started_at, ]
+  return(df)
+}
+
+#apply the function to all data frames in the data list
+data_list <- lapply(data_list, remove_error_rows)
+```
+
+Create a function to create a column that calculates the ride length in secs , use lapply to use the function on all the data in data_list.
+
+```{r add ride_length_secs column}
+#create a function to add the ride length in secs as a column
+add_ride_length_secs <- function(df){
+  df$ride_length_secs <- df$ended_at-df$started_at
+  return(df)
+}
+#apply the function to all data frames in the data list
+data_list <- lapply(data_list, add_ride_length_secs)
+```
+
+Create a function that converts ride_length_secs to hours and adds the new value to a column called ride_length_hrs. Use lapply to apply the function to all the data in data_list.
+
+```{r add ride_length_hrs column}
+#create a function that converts ride_length from seconds to hours
+convert_to_hours <- function(df){
+  df$ride_length_hrs <- as.numeric(df$ride_length_secs, units = "hours")
+  return(df)
+}
+
+#apply the convert to hours function to all the data frames in the data list
+data_list <-lapply(data_list, convert_to_hours)
+```
+
+Create a function to make a new column, day_of_week, and use weekdays to find the day of the week using the started_at column. Use lapply to apply the function to the whole data_list.
+
+```{r add weekday columnn}
+#create a function to add a new column displaying the day of the week the ride started at
+add_weekday <- function(df){
+  df$day_of_week <- weekdays(df$started_at)
+  return(df)
+}
+
+#apply the weekday function to all the files in the data list
+data_list <- lapply(data_list, add_weekday)
+```
+
+Create a list to convert the start/end id columns to character type to be able to join the data frames later on. Use the loop statement change all the columns in the list to character data types across all the data frames in data_list.
+
+```{r change data type}
+#create a list of the columns to force to the character data type
+new_data_types <- list(
+  start_station_id = "character",
+  end_station_id = "character")
+
+#use mutate to make both columns listed above character data types across all files
+for (i in seq_along(data_list)){
+  data_list[[i]] <- data_list[[i]] %>% 
+    mutate(across(all_of(names(new_data_types)), as.character))
+}
+```
+
+Check the integrity of the data by looking for duplicated rows. Create a new list for all the ride_id values in all the data in data_list. Use a loop to add all the ride_id values to the empty list. Store any duplicates in the value has_duplicates and use an if/else statement to print out if there any duplicates.
+
+```{r integrity check}
+#create empty list for ride_ids to verify only unique values for the primary key
+ride_id_list <- list()
+
+#create loop to put all ride_id values into the ride_id_list
+for(df in data_list) {ride_id_list <- c(ride_id_list, df$ride_id)}
+
+#create a value that counts duplicates in the ride_id_list
+has_duplicates <- any(duplicated(ride_id_list))
+
+#if the variable is TRUE there are duplicate ride_id values and this returns the IF statement, if the variable is FALSE there are no duplicate ride_id values and it returns the TRUE statement
+if (has_duplicates) { cat("There are duplicate ride_id values in the data.\n")} else{ cat("All ride_id values are unique across the data.\n")}
+```
+
+The ride_id values are all unique, so with the inital cleaning and transforming done export the cleaned data to a separate folder, Initial Clean, using a for loop statement.
+
+```{r export cleaned data}
+#export the initially cleaned files 
+for (i in seq_along(data_list)) {
+  original_file_name <- basename(names(data_list)[i])
+  new_file_name <- paste0("clean_", original_file_name)
+  output_path <- file.path("Initial Clean", new_file_name)
+  write.csv(data_list[[i]], file = output_path, row.names = FALSE)
+}
+```
+
+## Data Summary & Visualization
+
+Combine all the data in data_list into one data frame
+
+```{r combining the data}
+#combine all the data into one data frame
+combined_data <- bind_rows(data_list)
+```
+
+Use a pipe to add a year column and a quarter column to the data frame.
+
+```{r add year and quarter columns}
+#make new columns for the year and the quarter based off the started_at column
+combined_data <-  combined_data %>% 
+  mutate(
+    year = lubridate::year(started_at),
+    quarter = quarters(started_at)
+  )
+```
+
+Create a new column that combines the year and quarter columns into another column year_qtr.
+
+```{r year_qtr column}
+#create another column that combines the year and quarter into one column
+combined_data$year_qtr <- paste(combined_data$year, combined_data$quarter)
+```
+
+Summarize the data grouped by year_qtr, member_casual, and day_of_week to see the number of rides and the average ride_length_hrs for each category.
+
+```{r create a summary file}
+#get a summary of all the data
+summary_all <- combined_data %>% 
+  group_by(year_qtr, member_casual, day_of_week) %>% #group the data by these levels
+  summarize(count = n(),
+            mean_ride_length_hrs = mean(ride_length_hrs)) #summarize the data by number of rides and the average ride length
+```
+
+Summarize the data grouped only by year_qtr and by membership type, and returning the number of rides and the average ride_length_hrs.
+
+```{r summarize by membership type}
+#create a summary by the membership type grouped by the membership type and by the year and quarter
+summary_by_membership <- combined_data %>% 
+  group_by(year_qtr, member_casual) %>% 
+  summarize(count = n(), mean_ride_length_hrs = mean(ride_length_hrs))
+```
+
+Summarize the data grouped only by year_qtr and by the day of the week, and returning the number of rides and the average ride_length_hrs. 
+
+```{r summarize by day}
+#create a summary by the day of the week also grouped by year and quarter
+summary_by_day <- combined_data %>%  
+  group_by(year_qtr, day_of_week) %>% 
+  summarize(count = n(), mean_ride_length_hrs = mean(ride_length_hrs))
+```
+
+Create a clustered column chart to visualize ride length by membership type over time. Then run the plot by calling avg_length_by_membership.
+
+```{r plot ride length by membership}
+#create a plot to view the average ride length by membership type
+avg_length_by_membership <- ggplot(summary_by_membership, aes(x = year_qtr, y = mean_ride_length_hrs, fill = member_casual)) +
+  geom_col(position = "dodge") +  #create clustered column chart
+  labs(
+    x = "Year & Quarter",
+    y = "Average Ride Length (hrs)",
+    fill = "Membership Type") +   #titles for axes and legend
+  theme_minimal() +
+  ggtitle("Average Ride Length by Membership Type") +   #create title for the chart
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5),legend.position = "top") +  #center the chart title
+  ylim(0,1) +  #set the parameters for the y axis
+  scale_fill_manual(values = c("orange", "blue")) #pick the column colors for the chart
+
+#run the avg_length_by_membership plot
+avg_length_by_membership
+```
+
+In the first visualization of the plot, there is one outlier in 2020 Q1 that is up to 1.6 hours where as all the other values are between 0 and 1. Subset the data to remove the outlier and rerun the plot.
+
+```{r remove outlier}
+#after running the plot, remove an obvious outlier.
+summary_by_membership <- subset(summary_by_membership, year_qtr != "2020 Q1")
+```
+
+```{r rerun the plot, echo = FALSE}
+#rerun the plot
+avg_length_by_membership
+```
+
+Use factor and levels to  order the day_of_week column. This helps to order the legend in the next plot.
+
+```{r order the day column}
+#establish levels of the day of the week column so they are ordered from Sunday to Saturday
+summary_by_day$day_of_week <- factor(summary_by_day$day_of_week, levels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+```
+
+Create a line chart to view the average ride length per day of the week over time and store it in avg_length_per_day. Call on avg_length_per_day to see the plot.
+
+```{r plot ride length by day}
+#create a plot for the ride length per day of the week 
+avg_length_per_day <- ggplot(summary_by_day, aes(x = year_qtr, y = mean_ride_length_hrs, group = day_of_week, color = day_of_week)) +
+  geom_line(size = 1.2) +  #make a line chart and increase the size of the lines
+  labs(
+    x = "Year & Quarter",
+    y = "Average Ride Length (hrs)",
+    color = "Day of the Week",
+    title = "Average Ride Length in Hours per Day") + #chart labels
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5)) + #center the chart title
+  scale_color_manual(values = (c("Monday"= "blue", "Tuesday" = "green", "Wednesday" = "orange", "Thursday" = "purple", "Friday" = "red", "Saturday" = "magenta", "Sunday" = "black"))) + #assign colors to every day of the week
+  ylim(0, 0.8) # set parameters for the y axis
+```
+```{r rerun length per day plot, echo=FALSE}
+#run the plot
+avg_length_per_day
+```
+
+Use factor to order day_of_week by Sunday - Saturday. Create a clustered column charts for average ride length per each day of the week grouped by member_casual. Remove outliers and rerun the plot.
+
+```{r plot by membership and day}
+#establish levels of the day of the week column so they are ordered from Sunday to Saturday
+summary_all$day_of_week <- factor(summary_all$day_of_week, levels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+
+#create clustered column chart of avg ride length over time grouped by membership type and use facet wrap to make multiple charts, one for each day of the week
+avg_length_day_membership <- ggplot(summary_all, aes(x = year_qtr, y = mean_ride_length_hrs, fill = member_casual)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(.~day_of_week, nrow = 3) +
+  labs(
+    x = "Year & Quarter",
+    y = "Mean Ride Length (hrs)",
+    fill = "Membership Type",
+    title= "Avg. Ride Length by Day") +
+  theme_minimal()+
+  scale_fill_manual(values = c("orange", "blue"))+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), plot.title = element_text(hjust = 0.5, vjust = 0.5))
+
+#run the plot
+avg_length_day_membership
+
+#remove outlying values
+summary_all <- subset(summary_all, year_qtr != "2020 Q1")
+```
+```{r rerun last plot, echo = FALSE}
+#rerun the plot
+avg_length_day_membership
+```
+Create another chart to see the number of rides casual users take throughout the week. To do this first filetr the data by casual users, then make the plot using the new filtered data.
+```{r plot casual}
+#filter the summary by casual members
+summary_casual <- subset(summary_all, member_casual == "casual")
+
+#create a line chart to view only casual users and the number of rides they take throughout the week
+count_day_casual <- ggplot(summary_casual, aes(x = year_qtr, y = count, group = day_of_week, color = day_of_week)) +
+  geom_line(size = 1.2) +  #make a line chart and increase the size of the lines
+  labs(
+    x = "Year & Quarter",
+    y = "Number of Rides",
+    color = "Day of the Week",
+    title = "Total Rides by Casual Users per Day of the Week") + #chart labels
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, vjust = 0.5)) +
+  scale_color_manual(values = (c("Monday"= "blue", "Tuesday" = "green", "Wednesday" = "orange", "Thursday" = "purple", "Friday" = "red", "Saturday" = "magenta", "Sunday" = "black")))+
+  scale_y_continuous(labels = scales::comma, limits = c(0, 300000), breaks = seq(0, 300000, by = 100000))
+```
+```{r casual line plot, echo = FALSE}
+#run the plot
+count_day_casual
+```
+
+## Recommendations
+
+According to the summaries and summary visualizations, casual users take longer rides, but mostly on weekends. Annual members take shorter rides, but take more rides throughout the week. A digital media campaign should focus on the benefits of riding throughout the week and on the benefits of being an annual member. Ads could focus on the pros of riding a bike to work and highlight that the bikes can be used for anything from weekend bike rides to a short trip to the coffee shop. Further investigation could include well supported peer-reviewed scientific  findings on the health and ecological benefits of riding bikes more. Since this is public data, personal and private information has been removed, but further investigation by the company could look at the potential need for more bikes, stations, or under-served locations to encourage more use.
+
+## Resources
+
+Divvy public [data](https://divvy-tripdata.s3.amazonaws.com/index.html)
+
+
